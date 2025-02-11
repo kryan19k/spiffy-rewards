@@ -1,294 +1,166 @@
-import Image from "next/image";
-import { Inter } from "next/font/google";
-import { Button } from "@/components/ui/button";
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer"
-import { Skeleton } from "@/components/ui/skeleton"
-import { isInstalled, getPublicKey, signMessage } from "@gemwallet/api";
-import sdk from "@crossmarkio/sdk";
-import {useCookies} from "react-cookie";
+import { Navbar } from "@/components/Navbar"
+import { FaTwitter, FaDiscord, FaGithub, FaMusic, FaYoutube } from 'react-icons/fa'
+import { motion } from "framer-motion"
 
-import { useEffect, useState } from "react";
-
-const inter = Inter({ subsets: ["latin"] });
+// Add a gradient animation component
+const GradientBackground = () => (
+  <div className="absolute inset-0 -z-10">
+    <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-transparent to-blue-500/10 animate-gradient" />
+    <div className="absolute inset-0 bg-[url('/grid.png')] opacity-20" />
+  </div>
+)
 
 export default function Home() {
-  const [qrcode, setQrcode] = useState<string>("");
-  const [jumpLink, setJumpLink] = useState<string>("");
-  const [xrpAddress, setXrpAddress] = useState<string>("");
-  const [isMobile, setIsMobile] = useState<boolean>(false);
-  const [cookies, setCookie, removeCookie] = useCookies(["jwt"]);
-  const [enableJwt, setEnableJwt] = useState<boolean>(false);
-  const [retrieved, setRetrieved] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (window.innerWidth < 768) {
-      setIsMobile(true);
-    }
-
-    if (cookies.jwt !== undefined && cookies.jwt !== null) {
-      const url = "/api/auth";
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token: cookies.jwt }),
-      })
-        .then((response) => response.json())
-        .then((data) => {
-          if (data.hasOwnProperty("xrpAddress")) {
-            setXrpAddress(data.xrpAddress);
-            setRetrieved(true);
-          }
-        });
-    }
-  }, []);
-
-  const getQrCode = async () => {
-    const payload = await fetch("/api/auth/xumm/createpayload");
-    const data = await payload.json();
-
-    setQrcode(data.payload.refs.qr_png);
-    setJumpLink(data.payload.next.always);
-
-    if (isMobile) {
-      //open in new tab
-      window.open(data.payload.next.always, "_blank");
-    }
-
-    const ws = new WebSocket(data.payload.refs.websocket_status);
-
-    ws.onmessage = async (e) => {
-      let responseObj = JSON.parse(e.data);
-      if (responseObj.signed !== null && responseObj.signed !== undefined) {
-        const payload = await fetch(
-          `/api/auth/xumm/getpayload?payloadId=${responseObj.payload_uuidv4}`
-        );
-        const payloadJson = await payload.json();
-
-        const hex = payloadJson.payload.response.hex;
-        const checkSign = await fetch(`/api/auth/xumm/checksign?hex=${hex}`);
-        const checkSignJson = await checkSign.json();
-        setXrpAddress(checkSignJson.xrpAddress)
-        if (enableJwt) {
-          setCookie("jwt", checkSignJson.token, { path: "/" });
-        }
-      } else {
-        console.log(responseObj);
-      }
-    };
-  };
-
-  const handleConnectGem = () => {
-    isInstalled().then((response) => {
-      if (response.result.isInstalled) {
-        getPublicKey().then((response) => {
-          // console.log(`${response.result?.address} - ${response.result?.publicKey}`);
-          const pubkey = response.result?.publicKey;
-          //fetch nonce from /api/gem/nonce?pubkey=pubkey
-          fetch(
-            `/api/auth/gem/nonce?pubkey=${pubkey}&address=${response.result?.address}`
-          )
-            .then((response) => response.json())
-            .then((data) => {
-              const nonceToken = data.token;
-              const opts = {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${nonceToken}`,
-                },
-              };
-              signMessage(nonceToken).then((response) => {
-                const signedMessage = response.result?.signedMessage;
-                if (signedMessage !== undefined) {
-                  //post at /api/gem/checksign?signature=signature
-                  fetch(`/api/auth/gem/checksign?signature=${signedMessage}`, opts)
-                    .then((response) => response.json())
-                    .then((data) => {
-                      const { token, address } = data;
-                      if (token === undefined) {
-                        console.log("error");
-                        return;
-                      }
-                      setXrpAddress(address);
-                      if (enableJwt) {
-                        setCookie("jwt", token, { path: "/" });
-                      }
-                    });
-                }
-              });
-            });
-        });
-      }
-    });
-  };
-
-  const handleConnectCrossmark = async () => {
-    //sign in first, then generate nonce
-    const hashUrl = "/api/auth/crossmark/hash";
-    const hashR = await fetch(hashUrl);
-    const hashJson = await hashR.json();
-    const hash = hashJson.hash;
-    const id = await sdk.methods.signInAndWait(hash)
-    console.log(id);
-    const address = id.response.data.address;
-    const pubkey = id.response.data.publicKey;
-    const signature = id.response.data.signature;
-    const checkSign = await fetch(
-      `/api/auth/crossmark/checksign?signature=${signature}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${hash}`,
-        },
-        body: JSON.stringify({
-          pubkey: pubkey,
-          address: address,
-        }),
-      }
-    );
-
-    const checkSignJson = await checkSign.json();
-    if (checkSignJson.hasOwnProperty("token")) {
-      setXrpAddress(address);
-      if (enableJwt) {
-        setCookie("jwt", checkSignJson.token, { path: "/" });
-      }
-    }
-  };
-
   return (
-    <main
-      className={`flex min-h-screen flex-col items-center justify-between p-24 ${inter.className}`}
-    >
-      <div className="flex flex-col items-center">
-        <h1 className="text-4xl font-bold text-center">
-          Welcome to XRPL wallet connect template!
-        </h1>
-        <p className="text-center mt-4 text-lg">
-          This is a template for creating a wallet connect app with XRPL. Includes basic JWT authentication and 3 different wallet types.
-        </p>
-        <a
-          href="https://github.com/Aaditya-T"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center"
-        >
-          <Image
-            src="https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png"
-            alt="Github logo"
-            width={24}
-            height={24}
-            className="mr-2"
-          />
-          <span>Crafted by Aaditya (A.K.A Ghost!)</span>
-        </a>
-        <Drawer>
+    <main className="min-h-screen bg-gray-900 text-gray-100 relative overflow-hidden">
+      <GradientBackground />
+      <Navbar />
+      
+      <section className="pt-32 pb-16 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-center"
+          >
+            {/* Hero Section with enhanced styling */}
+            <div className="relative">
+              <motion.div
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                transition={{ duration: 0.5 }}
+                className="absolute -top-20 left-1/2 -translate-x-1/2 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" 
+              />
+              <h1 className="text-6xl sm:text-7xl font-bold mb-6 bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-blue-500">
+                SPIFFY Rewards
+              </h1>
+              <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+                The next generation of social engagement rewards on the XRPL. 
+                <span className="block mt-2 text-purple-400">Connect, engage, and earn - no ads required.</span>
+              </p>
+              <div className="relative mb-12">
+                <div className="text-2xl font-bold text-purple-500 animate-pulse">
+                  Coming Soon
+                </div>
+              </div>
+            </div>
 
-          <DrawerTrigger className="mt-8 bg-blue-500 hover:bg-blue-600 w-48 h-12 rounded-lg text-white" onClick={getQrCode}>
-            Connect with XAMAN
-          </DrawerTrigger>
-          <DrawerContent className="bg-white p-4">
-            <DrawerHeader className="flex flex-col items-center">
-              <DrawerTitle>Scann this qr code to sign in with xaman!</DrawerTitle>
-            </DrawerHeader>
-            <DrawerDescription className="flex flex-col items-center">
-              {
-                qrcode !== "" ? (
-                  <Image
-                    src={qrcode}
-                    alt="xaman qr code"
-                    width={200}
-                    height={200}
-                  />
-                ) : (
-                  <div className="flex flex-col space-y-3">
-                    <Skeleton className="h-[250px] w-[250px] rounded-xl bg-gray-300" />
+            {/* Features Section with hover effects */}
+            <div className="grid md:grid-cols-3 gap-8 mt-16 text-left">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="group bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]"
+              >
+                <FaMusic className="text-purple-500 text-3xl mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">Stream & Earn</h3>
+                <p className="text-gray-400">
+                  Listen to your favorite music and earn rewards. Hold SPIFFY tokens to unlock exclusive earning opportunities.
+                </p>
+              </motion.div>
+
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="group bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]"
+              >
+                <FaTwitter className="text-purple-500 text-3xl mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">Social Engagement</h3>
+                <p className="text-gray-400">
+                  Engage with content on X (Twitter) and earn rewards. Quality interactions lead to better rewards.
+                </p>
+              </motion.div>
+
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="group bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]"
+              >
+                <FaYoutube className="text-purple-500 text-3xl mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">YouTube Interaction</h3>
+                <p className="text-gray-400">
+                  Comment and engage with YouTube content to earn rewards. Meaningful interactions are valued.
+                </p>
+              </motion.div>
+            </div>
+
+            {/* How It Works Section with enhanced steps */}
+            <div className="mt-24 relative">
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-transparent to-blue-500/5 rounded-3xl" />
+              <h2 className="text-4xl font-bold mb-12 relative">How It Works</h2>
+              <div className="grid md:grid-cols-4 gap-6 relative">
+                <div className="relative group">
+                  <div className="bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 group-hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                    <span className="absolute -top-4 left-4 bg-purple-500 text-white px-3 py-1 rounded-full text-sm group-hover:scale-110 transition-transform">
+                      Step 1
+                    </span>
+                    <h3 className="text-lg font-bold mb-2 mt-2">Connect Wallet</h3>
+                    <p className="text-gray-400">Connect your XRPL wallet and verify SPIFFY token holdings</p>
                   </div>
-                )
-              }
-              {jumpLink !== "" && (
-                <Button className="mt-2 bg-blue-400 hover:bg-blue-500 w-48 h-12" onClick={() => {
-                  window.open(jumpLink, "_blank");
-                }}>
-                  Open in Xaman
-                </Button>
-              )}
-            </DrawerDescription>
-          </DrawerContent>
-        </Drawer>
+                </div>
 
-        <Button
-          className="mt-2 bg-blue-400 hover:bg-blue-500 w-48 h-12"
-          onClick={handleConnectGem}
-        >
-          Connect with GEM
-        </Button>
+                <div className="relative group">
+                  <div className="bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 group-hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                    <span className="absolute -top-4 left-4 bg-purple-500 text-white px-3 py-1 rounded-full text-sm group-hover:scale-110 transition-transform">
+                      Step 2
+                    </span>
+                    <h3 className="text-lg font-bold mb-2 mt-2">Choose Activity</h3>
+                    <p className="text-gray-400">Select from various engagement activities</p>
+                  </div>
+                </div>
 
-        <Button
-          className="mt-2 bg-orange-500 hover:bg-orange-600 w-48 h-12"
-          onClick={handleConnectCrossmark}
-        >
-          Connect with Crossmark
-        </Button>
+                <div className="relative group">
+                  <div className="bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 group-hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                    <span className="absolute -top-4 left-4 bg-purple-500 text-white px-3 py-1 rounded-full text-sm group-hover:scale-110 transition-transform">
+                      Step 3
+                    </span>
+                    <h3 className="text-lg font-bold mb-2 mt-2">Engage</h3>
+                    <p className="text-gray-400">Participate in meaningful interactions</p>
+                  </div>
+                </div>
 
-        <div className="mt-2">
-          <input
-            type="checkbox"
-            id="enableJwt"
-            name="enableJwt"
-            checked={enableJwt}
-            onChange={() => setEnableJwt(!enableJwt)}
-          />
-          <label htmlFor="enableJwt" className="ml-2">
-            Enable JWT
-          </label>
-        </div>
+                <div className="relative group">
+                  <div className="bg-gray-800/50 p-6 rounded-xl border border-gray-700 hover:border-purple-500/50 transition-all duration-300 group-hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                    <span className="absolute -top-4 left-4 bg-purple-500 text-white px-3 py-1 rounded-full text-sm group-hover:scale-110 transition-transform">
+                      Step 4
+                    </span>
+                    <h3 className="text-lg font-bold mb-2 mt-2">Earn Rewards</h3>
+                    <p className="text-gray-400">Receive reward tokens for your engagement</p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        <div className="mt-8">
-          {xrpAddress !== "" && (
-            <p className="text-center">
-              Your XRP address is: <a className="font-bold" href={`https://bithomp.com/explorer/${xrpAddress}`}>{xrpAddress.slice(0, 3)}...{xrpAddress.slice(-3)}</a>{" "}
-              {retrieved && (
-                <span className="text-red-500 underline" onClick={() => {
-                  removeCookie("jwt");
-                  setRetrieved(false);
-                  setXrpAddress("");
-                }}>
-                  (Retrieved from cookies, click to remove)
-                </span>
-              )}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-8">
-          <p className="text-center">
-            Have a suggestion or found a bug? Open an issue on the{" "}
-            <a
-              href="https://github.com/Aaditya-T/xrpl-wallet-connect"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500"
+            {/* Enhanced Social Links */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="mt-24 flex justify-center space-x-8"
             >
-              GitHub repository
-            </a>
-          </p>
+              <a href="#" className="group">
+                <div className="p-3 rounded-full bg-gray-800/50 border border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                  <FaTwitter size={24} className="text-gray-400 group-hover:text-purple-500 transition-colors" />
+                </div>
+              </a>
+              <a href="#" className="group">
+                <div className="p-3 rounded-full bg-gray-800/50 border border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                  <FaDiscord size={24} className="text-gray-400 group-hover:text-purple-500 transition-colors" />
+                </div>
+              </a>
+              <a href="#" className="group">
+                <div className="p-3 rounded-full bg-gray-800/50 border border-gray-700 hover:border-purple-500/50 transition-all duration-300 hover:shadow-[0_0_30px_rgba(168,85,247,0.15)]">
+                  <FaGithub size={24} className="text-gray-400 group-hover:text-purple-500 transition-colors" />
+                </div>
+              </a>
+            </motion.div>
+          </motion.div>
         </div>
-
-      </div>
-
+      </section>
     </main>
-  );
+  )
 }
